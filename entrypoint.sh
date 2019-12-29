@@ -138,11 +138,15 @@ renew_token () {
 }
 
 auto_refresh () {
+    local app_role=$1;
+
+    sleep 5;
+
     while true; do
         if renew_token; then
             reset_backoff;
             lease_sleep "$(current_lease_duration)";
-        elif k8s_login; then
+        elif k8s_login "$app_role"; then
             reset_backoff;
             lease_sleep "$(current_lease_duration)";
         else

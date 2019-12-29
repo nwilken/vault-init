@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+SA_JWT_PATH="/var/run/secrets/kubernetes.io/serviceaccount/token";
+
 log_info () {
     echo "[$(date)] INFO  $1" 1>&2;
 }
@@ -54,8 +56,6 @@ random_between () {
 write_client_token () {
     local resp=$1;
 
-    [ -z "$VAULT_TOKEN_PATH" ] && log_fatal "missing or empty VAULT_TOKEN_PATH" && exit 1;
-
     local token;
     if token="$(jq -ecj '.auth.client_token' <<< $resp)"; then
         mkdir -p ${VAULT_TOKEN_PATH%/*};
@@ -100,13 +100,10 @@ k8s_login () {
     log_info "trying kubernetes service account login...";
 
     local app_role=$1;
+    [ -z "$app_role" ] && log_fatal "missing or empty role argument" && exit 1;
 
-    local jwt_path="/var/run/secrets/kubernetes.io/serviceaccount/token";
-    [ ! -f "$jwt_path" ] && log_fatal "missing service account token: $jwt_path" && exit 1;
-    local jwt=$(cat "$jwt_path");
-
-    [ -z "$VAULT_ADDR" ] && log_fatal "missing or empty VAULT_ADDR" && exit 1;
-    [ -z "$K8S_LOGIN_PATH" ] && log_fatal "missing or empty K8S_LOGIN_PATH" && exit 1;
+    [ ! -f "$SA_JWT_PATH" ] && log_fatal "missing service account token: $SA_JWT_PATH" && exit 1;
+    local jwt=$(cat "$SA_JWT_PATH");
 
     local login_data=$(jq -n --arg jwt "$jwt" --arg role "$app_role" '{jwt: $jwt, role: $role}');
     local resp=$(curl -sS --request POST --data "$login_data" "${VAULT_ADDR}/v1/auth/kubernetes/login");
@@ -117,7 +114,6 @@ k8s_login () {
 renew_token () {
     log_info "trying client token renewal...";
 
-    [ -z "$K8S_LOGIN_PATH" ] && log_fatal "missing or empty K8S_LOGIN_PATH" && exit 1;
     [ ! -f "$K8S_LOGIN_PATH" ] && log_error "missing vault login: $K8S_LOGIN_PATH" && return 1;
 
     local prev_login=$(cat "$K8S_LOGIN_PATH");
@@ -139,6 +135,7 @@ renew_token () {
 
 auto_refresh () {
     local app_role=$1;
+    [ -z "$app_role" ] && log_fatal "missing or empty role argument" && exit 1;
 
     sleep 5;
 
@@ -154,5 +151,9 @@ auto_refresh () {
         fi
     done
 }
+
+[ -z "$VAULT_ADDR" ] && log_fatal "missing or empty VAULT_ADDR" && exit 1;
+[ -z "$K8S_LOGIN_PATH" ] && log_fatal "missing or empty K8S_LOGIN_PATH" && exit 1;
+[ -z "$VAULT_TOKEN_PATH" ] && log_fatal "missing or empty VAULT_TOKEN_PATH" && exit 1;
 
 eval "$@"
